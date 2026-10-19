@@ -43,6 +43,7 @@ use soroban_sdk::{
 };
 
 // ── Audit events ──────────────────────────────────────────────────────────────
+
 fn emit(
     env: &Env,
     action: soroban_sdk::Symbol,
@@ -66,6 +67,10 @@ pub enum DataKey {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /// Daily spend limit record stored per wallet.
+///
+/// `reset_ledger` records the ledger at which the current window expires and
+/// `spent` resets. When `env.ledger().sequence() >= reset_ledger`, the window
+/// has elapsed and `spent` is treated as 0 (but only written on next spend).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct DailyLimit {
@@ -154,6 +159,8 @@ impl MuxPolicy {
         Ok(())
     }
 
+    // ── Admin entrypoints ─────────────────────────────────────────────────────
+
     /// Set or update the daily spend limit for a wallet. Admin only.
     ///
     /// `day_ledgers` is the number of ledgers that constitute one day
@@ -161,6 +168,8 @@ impl MuxPolicy {
     /// `registry_id` is an optional registry contract address for policy validation.
     ///
     /// Returns `TooManyWallets` if the wallet limit count has reached capacity.
+    ///
+    /// Emits: `lmt_set`
     pub fn set_daily_limit(
         env: Env,
         wallet: Address,
@@ -317,6 +326,15 @@ impl MuxPolicy {
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
+    /// Fail-closed admin guard.
+    ///
+    /// Reads the stored admin address and calls `require_auth()` on it.
+    /// Fails with [`MuxPolicyError::NotInitialized`] if no admin is stored,
+    /// or with [`MuxPolicyError::Unauthorized`] (via `require_auth`) if the
+    /// caller is not the admin.
+    ///
+    /// Every state-mutating admin entrypoint MUST call `require_admin` before
+    /// reading or writing any other storage key.
     fn require_admin(env: &Env) -> Result<(), MuxPolicyError> {
         let admin: Address = env
             .storage()

@@ -209,13 +209,15 @@ fn emit(
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
-enum DataKey {
+pub enum DataKey {
     Executing,
     /// Stores optional contract-level metadata set once at deployment.
     Meta,
     /// Upgrade authority, set once by `initialize`. Optional: a batcher that
     /// is never initialized has no admin and can never be upgraded.
     Admin,
+    /// Configurable per-operation fee in stroops (issue #748 fee accounting).
+    FeePerOp,
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -248,7 +250,7 @@ pub struct Operation {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BatchResult {
     /// Number of operations that completed without error.
     pub success_count: u32,
@@ -502,14 +504,16 @@ impl MuxBatcher {
     /// Estimate the fee (in stroops) for a batch of the given size.
     ///
     /// Returns `Err(BatchTooLarge)` when `op_count` exceeds `max_batch_size`.
-    pub fn estimate_fees(_env: Env, op_count: u32) -> Result<u32, MuxBatcherError> {
+    pub fn estimate_fees(env: Env, op_count: u32) -> Result<u32, MuxBatcherError> {
         if op_count == 0 {
             return Err(MuxBatcherError::EmptyBatch);
         }
         if op_count > MAX_BATCH_SIZE {
             return Err(MuxBatcherError::BatchTooLarge);
         }
-        Ok(op_count.saturating_mul(FEE_PER_OP))
+        // Reflect the configurable per-op fee (fee accounting, issue #748):
+        // clients that call fee_per_op() at runtime pick up admin changes.
+        Ok(op_count.saturating_mul(Self::fee_per_op(env)))
     }
 
     /// Store registry metadata (description, author) for this batcher instance.
@@ -1117,11 +1121,12 @@ mod tests {
         let client = MuxBatcherClient::new(&env, &contract_id);
 
         let caller = Address::generate(&env);
+        let target_id = env.register_contract(None, DummyTarget);
         let mut ops: Vec<Operation> = Vec::new(&env);
         // Successful op 1
         ops.push_back(Operation {
-            target: contract_id.clone(),
-            fn_name: symbol_short!("max_batch"),
+            target: target_id,
+            fn_name: symbol_short!("noop"),
             args: Vec::new(&env),
             require_success: false,
             kind: BatchOperationKind::Invoke,
@@ -1689,7 +1694,17 @@ mod tests {
         assert_eq!(exec_over.unwrap_err().unwrap(), MuxBatcherError::BatchTooLarge);
 
         // Parity 3: In-bound valid batch accepts and returns matching success_count
-        let valid_ops = make_nop_ops(&env, 5);
+        let target_id = env.register_contract(None, DummyTarget);
+        let mut valid_ops: Vec<Operation> = Vec::new(&env);
+        for _ in 0..5 {
+            valid_ops.push_back(Operation {
+                target: target_id.clone(),
+                fn_name: symbol_short!("noop"),
+                args: Vec::new(&env),
+                require_success: false,
+                kind: BatchOperationKind::Invoke,
+            });
+        }
         let sim_valid = client.simulate_batch(&caller, &valid_ops);
         let exec_valid = client.execute_batch(&caller, &valid_ops);
         assert_eq!(sim_valid.success_count, exec_valid.success_count);

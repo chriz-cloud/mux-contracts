@@ -384,6 +384,7 @@ export function muxPolicyErrorMessage(
     6: "amount is zero or negative",
     7: "day_ledgers is zero",
     8: "wallet cap (256) reached",
+    9: "linked registry contract is unreachable or invalid",
   };
 
   const nameMap: Record<MuxPolicyError, number> = {
@@ -395,6 +396,7 @@ export function muxPolicyErrorMessage(
     InvalidAmount: 6,
     InvalidPeriod: 7,
     TooManyWallets: 8,
+    RegistryNotFound: 9,
   };
 
   const code = typeof error === "number" ? error : (nameMap[error] ?? -1);
@@ -547,7 +549,8 @@ export type MuxPolicyError =
   | "LimitExceeded"
   | "InvalidAmount"
   | "InvalidPeriod"
-  | "TooManyWallets";
+  | "TooManyWallets"
+  | "RegistryNotFound";
 
 export type SpendingPolicyError =
   | "NotInitialized"

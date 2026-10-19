@@ -272,6 +272,8 @@ pub enum RecoveryError {
     RegistryNotFound = 15,
 }
 
+pub type MuxRecoveryError = RecoveryError;
+
 // ── Storage TTL ───────────────────────────────────────────────────────────────
 const TTL_THRESHOLD: u32 = 17_280; // ~1 day
 const TTL_EXTEND_TO: u32 = 518_400; // ~30 days

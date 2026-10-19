@@ -36,6 +36,7 @@ by a specific actor; public entrypoints are callable by anyone.
 | `set_spend_limit(asset, amount, period)` | A | Owner only; paused check |
 | `debit_spend(asset, spend)` | U | Caller (contract) authorizes; paused check; reentrancy guard |
 | `execute(target, function, args, asset, spend, nonce)` | A | Owner only; paused check; validates spend limit, consumes `nonce` (must equal `nonce()`, else `InvalidNonce`), then invokes `target` while the reentrancy guard is held, then persists the debit (checks-effects-interactions); emits `executed` event |
+| `nonce()` | P | Read-only; current transaction nonce |
 | `owner()` | P | Read-only |
 | `delegates()` | P | Read-only; filters expired |
 | `get_delegate(delegate)` | P | Read-only |
@@ -108,6 +109,8 @@ by a specific actor; public entrypoints are callable by anyone.
 | `check_permission_strict(account, permission)` | P | Read-only; `Ok(())` when the account holds the permission, `Err(Unauthorized)` otherwise — typed-error variant of `has_permission` |
 | `get_roles(account)` | P | Read-only |
 | `get_role_members(role)` | P | Read-only |
+| `check_permission_strict(account, perm)` | P | Read-only; deny-by-default permission check, returns `Unauthorized` when the account does not hold the permission |
+| `get_admin_threshold()` | P | Read-only; current multisig admin approval threshold |
 | `set_admin_threshold(threshold)` | A | Admin only |
 | `get_admin_threshold()` | P | Read-only; returns the current admin threshold (defaults to 1 when never set) |
 | `propose_admin(new_admin)` | A | Admin only |
