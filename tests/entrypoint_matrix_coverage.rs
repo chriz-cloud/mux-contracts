@@ -26,6 +26,11 @@
 /// workspace members and cross-checked against `CONTRACTS` and the `## `
 /// sections of `docs/entrypoint-matrix.md`, so a new crate cannot be added
 /// to the workspace without also being covered here and documented.
+///
+/// As of issue #975 the contract crate list is discovered from the workspace
+/// `members` array in `Cargo.toml` instead of a hard-coded array, and the
+/// `#[contractimpl]` scan is line-oriented so multi-line `pub fn` signatures
+/// are still attributed to the correct entrypoint.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -60,6 +65,23 @@ const AUTH_CALL_NAMES: [&str; 3] = ["require_auth", "require_admin", "require_ow
 /// rather than weakening the rule for every public method.
 const PUBLIC_AUTH_ALLOWLIST: [(&str, &str); 0] = [];
 
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
+
+/// Absolute path to a file in the workspace root, resolved from this crate's
+/// manifest dir so the test does not depend on the CWD cargo uses.
+fn workspace_path(rel: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .join(rel)
+}
+
+/// Discover the production contract crates from the workspace `members`
+/// array in `Cargo.toml`.
+///
+/// Only `contracts/mux-*` members are returned; helper crates such
 /// Absolute path to a file in the workspace root, resolved from this crate's
 /// manifest dir so the test does not depend on the CWD cargo uses.
 fn workspace_path(rel: &str) -> std::path::PathBuf {
@@ -72,12 +94,33 @@ fn workspace_path(rel: &str) -> std::path::PathBuf {
 /// Parse the `members = [...]` block of the workspace `Cargo.toml` with a
 /// minimal line scan (no extra deps) and return the contract crate names
 /// (the last path segment of every `contracts/mux-*` member).
-fn workspace_contract_crates() -> Result<Vec<String>, String> {
+///
+/// Only `contracts/mux-*` members are returned; helper crates such as
+/// `contracts/soroban-test-helpers` are intentionally excluded because they
+/// do not expose `#[contractimpl]` entrypoints. The list is sorted so the
+/// failure output is deterministic.
+fn discover_contract_crates() -> Result<Vec<String>, String> {
     let manifest_path = workspace_path("Cargo.toml");
     let content = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("Failed to read {}: {}", manifest_path.display(), e))?;
 
     let mut members: Vec<String> = Vec::new();
+    let manifest_path = workspace_path("Cargo.toml");
+    let content = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Failed to read {}: {}", manifest_path.display(), e))?;
+
+    let mut in_members = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if !in_members {
+            if trimmed.starts_with("members") && trimmed.contains('[') {
+                in_members = true;
+                // Handle a single-line `members = ["a", "b"]` form.
+                if let Some(close) = trimmed.find(']') {
+                    collect_member_paths(&trimmed[..close], &mut members);
+                    in_members = false;
     let mut in_members = false;
 
     for line in content.lines() {
@@ -124,6 +167,19 @@ fn collect_members(fragment: &str, out: &mut Vec<String>) {
                 rest = &after[end + 1..];
             }
             None => break,
+        }
+    }
+}
+
+/// Parse the `## <crate>` section headers from `docs/entrypoint-matrix.md`.
+fn matrix_section_headers() -> Result<HashSet<String>, String> {
+    let matrix_path = workspace_path("docs/entrypoint-matrix.md");
+    let content = fs::read_to_string(&matrix_path)
+        .map_err(|e| format!("Failed to read {}: {}", matrix_path.display(), e))?;
+    Ok(content
+        .lines()
+        .filter_map(|line| line.strip_prefix("## "))
+        .map(|s| s.trim().to_st
         }
     }
 }
@@ -234,12 +290,23 @@ fn parse_documented_entrypoints() -> Result<HashMap<String, Vec<ContractEntrypoi
 /// Extract entrypoint names from contract source code.
 ///
 /// Tracks `#[contractimpl]` impl blocks by brace depth and records every
-/// `pub fn` defined while inside one. The scan stops at the `#[cfg(test)]`
-/// module boundary implicitly: test modules do not declare `pub fn`.
+/// `pub fn` defined while inside one. The scan is line-oriented and buffers
+/// a pending `pub fn` signature so multi-line forms such as
+///
+/// ```ignore
+/// pub fn transfer(
+///     from: Address,
+/// ) -> Result<(), Error> {
+/// ```
+///
+/// are still attributed to the correct entrypoint. The scan stops at the
+/// `#[cfg(test)]` module boundary: test-module helpers are not production
+/// contract entrypoints.
 fn extract_implemented_entrypoints() -> Result<HashMap<String, Vec<String>>, String> {
     let mut implemented = HashMap::new();
+    let contracts = discover_contract_crates()?;
     
-    for contract_name in &CONTRACTS {
+    for contract_name in &contracts {
         let lib_path = workspace_path(&format!("contracts/{}/src/lib.rs", contract_name));
         if !lib_path.exists() {
             continue;
@@ -252,6 +319,8 @@ fn extract_implemented_entrypoints() -> Result<HashMap<String, Vec<String>>, Str
         let mut in_contractimpl = false;
         let mut brace_depth = 0i32;
         let mut in_impl_body = false;
+        // Accumulates a `pub fn` signature that may span multiple lines.
+        let mut pending_fn: Option<String> = None;
         
         for line in content.lines() {
             let trimmed = line.trim();
@@ -266,6 +335,7 @@ fn extract_implemented_entrypoints() -> Result<HashMap<String, Vec<String>>, Str
                 in_contractimpl = true;
                 brace_depth = 0;
                 in_impl_body = false;
+                pending_fn = None;
                 continue;
             }
             
@@ -282,22 +352,27 @@ fn extract_implemented_entrypoints() -> Result<HashMap<String, Vec<String>>, Str
                 // (other impls, test modules) are not mis-attributed.
                 if in_impl_body && brace_depth <= 0 {
                     in_contractimpl = false;
+                    pending_fn = None;
                     in_impl_body = false;
                     continue;
                 }
                 
-                // Extract pub fn names from within the impl block
-                if in_impl_body && trimmed.starts_with("pub fn ") {
-                    if let Some(fn_name) = trimmed.strip_prefix("pub fn ") {
-                        let name = fn_name
-                            .split('(')
-                            .next()
-                            .unwrap_or(fn_name)
-                            .trim()
-                            .to_string();
-                        if !name.is_empty() {
-                            entrypoints.push(name);
+                // Look for public function definitions, buffering the
+                // signature until the opening paren is seen so multi-line
+                // `pub fn` forms are handled.
+                if pending_fn.is_none() && trimmed.starts_with("pub fn ") {
+                    pending_fn = Some(trimmed.to_string());
+                } else if let Some(buf) = pending_fn.as_mut() {
+                    buf.push(' ');
+                    buf.push_str(trimmed);
+                }
+                
+                if let Some(buf) = pending_fn.as_ref() {
+                    if buf.contains('(') {
+                        if let Some(fn_name) = extract_function_name(buf) {
+                            entrypoints.push(fn_name);
                         }
+                        pending_fn = None;
                     }
                 }
             }
@@ -309,6 +384,18 @@ fn extract_implemented_entrypoints() -> Result<HashMap<String, Vec<String>>, Str
     Ok(implemented)
 }
 
+/// Extract function name from a "pub fn name(...)" line
+fn extract_function_name(line: &str) -> Option<String> {
+    if let Some(start) = line.find("pub fn ") {
+        let after_fn = &line[start + 7..];
+        if let Some(paren_pos) = after_fn.find('(') {
+            let name = after_fn[..paren_pos].trim();
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
 /// Compute the symmetric difference between documented and implemented
 /// entrypoints for a single contract. Returns `(missing_from_docs,
 /// missing_from_source)` sorted for stable failure messages.
@@ -316,19 +403,23 @@ fn diff_entrypoints(
     documented: &[String],
     implemented: &[String],
 ) -> (Vec<String>, Vec<String>) {
-    let doc_set: HashSet<&String> = documented.iter().collect();
-    let impl_set: HashSet<&String> = implemented.iter().collect();
+    let documented_set: HashSet<&String> = documented.iter().collect();
+    let implemented_set: HashSet<&String> = implemented.iter().collect();
 
-    let mut missing_from_docs: Vec<String> = impl_set
-        .difference(&doc_set)
-        .map(|s| (*s).clone())
-        .collect();
-    let mut missing_from_source: Vec<String> = doc_set
-        .difference(&impl_set)
+    let mut missing_from_docs: Vec<String> = implemented_set
+        .difference(&documented_set)
         .map(|s| (*s).clone())
         .collect();
     missing_from_docs.sort();
+    missing_from_docs.dedup();
+
+    let mut missing_from_source: Vec<String> = documented_set
+        .difference(&implemented_set)
+        .map(|s| (*s).clone())
+        .collect();
     missing_from_source.sort();
+    missing_from_source.dedup();
+
     (missing_from_docs, missing_from_source)
 }
 
@@ -439,6 +530,20 @@ fn entrypoint_matrix_is_complete() {
 
     assert!(
         failures.is_empty(),
+        "entrypoint matrix is stale:\n{}",
+                contract, missing_from_docs
+            ));
+        }
+        if !missing_from_source.is_empty() {
+            failures.push(format!(
+                "{}: documented but not implemented: {:?}",
+                contract, missing_from_source
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
         "entrypoint matrix is out of sync:\n{}",
         failures.join("\n")
     );
@@ -450,6 +555,13 @@ fn entrypoint_matrix_is_complete() {
 fn diff_entrypoints_reports_both_directions() {
     let documented = vec!["a".to_string(), "b".to_string()];
     let implemented = vec!["b".to_string(), "c".to_string()];
+
+    let (missing_from_docs, missing_from_source) =
+        diff_entrypoints(&documented, &implemented);
+
+    assert_eq!(missing_from_docs, vec!["c".to_string()]);
+    assert_eq!(missing_from_source, vec!["a".to_string()]);
+}
 
     let (missing_from_docs, missing_from_source) =
         diff_entrypoints(&documented, &implemented);
