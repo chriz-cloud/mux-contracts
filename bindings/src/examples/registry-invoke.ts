@@ -33,25 +33,26 @@
  *     --secret-key S... \
  *     --simulate-only
  *
- *   # Register a named wallet (owner signs)
+ *   # Register a named wallet (owner signs; mux-wallet-registry contract)
  *   bash scripts/local-invoke.sh \
- *     --contract-name mux-registry \
+ *     --contract-name mux-wallet-registry \
  *     --function register_wallet \
  *     --secret-key S... \
  *     --arg '{"type":"string","value":"alice"}' \
  *     --arg '{"type":"address","value":"G..."}'
  *
- *   # Look up a named wallet (owner/delegate/guardian signs)
+ *   # Look up a named wallet (read-only simulation)
  *   bash scripts/local-invoke.sh \
- *     --contract-name mux-registry \
- *     --function lookup_wallet \
+ *     --contract-name mux-wallet-registry \
+ *     --function get_wallet \
  *     --secret-key S... \
  *     --arg '{"type":"string","value":"alice"}' \
  *     --simulate-only
  */
 
-import { Keypair } from "@stellar/stellar-sdk";
+import { Address, Keypair } from "@stellar/stellar-sdk";
 import { MuxRegistryClient } from "../generated/mux-registry";
+import { MuxWalletRegistryClient } from "../generated/mux-wallet-registry";
 import { getNetworkConfig } from "../network";
 
 /**
@@ -182,10 +183,9 @@ export async function listRegisteredContracts(
 }
 
 /**
- * Register a named wallet. The signing keypair must hold the `owner` role for
- * the name; the contract rejects any other caller (deny-by-default). The
- * `idempotencyKey` makes concurrent/replayed registrations safe: a repeat with
- * the same key returns the existing record instead of failing.
+ * Register a named wallet via the mux-wallet-registry contract. The signing
+ * keypair must hold the `owner` role; the contract rejects any other caller
+ * (deny-by-default).
  */
 export async function registerNamedWallet(
   contractId: string,
@@ -196,22 +196,28 @@ export async function registerNamedWallet(
 ): Promise<NamedWalletRecord> {
   validateNamedWalletOptions(options);
   const config = getNetworkConfig();
-  const client = new MuxRegistryClient({
+  const client = new MuxWalletRegistryClient({
     contractId,
     networkPassphrase: config.networkPassphrase,
     rpcUrl: config.rpcUrl,
   });
-  return client.registerWallet(ownerKeypair, name, address, {
+  await client.registerWallet(ownerKeypair, name, Address.fromString(address), {
+    role: "Owner",
+    correlationId: options.correlationId,
+  });
+  return {
+    name,
+    address,
     role: "owner",
     correlationId: options.correlationId,
-    idempotencyKey: options.idempotencyKey,
-  });
+  };
 }
 
 /**
- * Look up a named wallet. The caller must present an authorized role
- * (owner/delegate/guardian); the contract enforces the policy on-chain so
- * clients cannot bypass it. Uses simulation (no fee).
+ * Look up a named wallet via the mux-wallet-registry contract. Lookups are
+ * read-only simulations (no fee); the contract enforces the write-side policy
+ * on-chain so clients cannot bypass it. `role` documents caller intent and is
+ * echoed in the returned record for audit correlation.
  */
 export async function lookupNamedWallet(
   contractId: string,
@@ -222,13 +228,16 @@ export async function lookupNamedWallet(
 ): Promise<NamedWalletRecord> {
   validateNamedWalletOptions(options);
   const config = getNetworkConfig();
-  const client = new MuxRegistryClient({
+  const client = new MuxWalletRegistryClient({
     contractId,
     networkPassphrase: config.networkPassphrase,
     rpcUrl: config.rpcUrl,
   });
-  return client.lookupWallet(callerKeypair, name, {
+  const wallet = await client.getWallet(callerKeypair, name);
+  return {
+    name,
+    address: wallet.toString(),
     role,
     correlationId: options.correlationId,
-  });
+  };
 }

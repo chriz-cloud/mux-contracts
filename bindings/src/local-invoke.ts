@@ -91,7 +91,7 @@ function parseJsonValue(value: unknown): xdr.ScVal {
   }
 
   if (typeof value === "number") {
-    return nativeToScVal(value, { type: "i64" });
+    return parseBigIntScVal("i64", value);
   }
 
   if (typeof value === "string") {
@@ -101,7 +101,37 @@ function parseJsonValue(value: unknown): xdr.ScVal {
   throw new Error(`Unsupported argument type: ${typeof value}`);
 }
 
-function parseExplicitScVal(type: string, value: unknown): xdr.ScVal {
+/** Inclusive bounds for signed/unsigned 64-bit contract arguments. */
+const I64_MIN = -(2n ** 63n);
+const I64_MAX = 2n ** 63n - 1n;
+const U64_MAX = 2n ** 64n - 1n;
+
+/**
+ * Convert a raw value to a 64-bit ScVal via BigInt, rejecting values outside
+ * the signed (`i64`) or unsigned (`u64`) 64-bit range with a descriptive error.
+ * BigInt conversion preserves the full 64-bit range; Number() would silently
+ * lose precision above 2^53.
+ */
+function parseBigIntScVal(type: "i64" | "u64", value: unknown): xdr.ScVal {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(String(value));
+  } catch {
+    throw new Error(`Invalid ${type} argument value: ${String(value)}`);
+  }
+
+  const min = type === "i64" ? I64_MIN : 0n;
+  const max = type === "i64" ? I64_MAX : U64_MAX;
+  if (parsed < min || parsed > max) {
+    throw new Error(
+      `${type} value out of range: ${String(value)} (valid range ${min} to ${max})`
+    );
+  }
+
+  return nativeToScVal(parsed, { type });
+}
+
+export function parseExplicitScVal(type: string, value: unknown): xdr.ScVal {
   switch (type) {
     case "address":
       return nativeToScVal(String(value), { type: "address" });
@@ -114,9 +144,9 @@ function parseExplicitScVal(type: string, value: unknown): xdr.ScVal {
     case "u32":
       return nativeToScVal(Number(value), { type: "u32" });
     case "u64":
-      return nativeToScVal(BigInt(String(value)), { type: "u64" });
+      return parseBigIntScVal("u64", value);
     case "i64":
-      return nativeToScVal(Number(value), { type: "i64" });
+      return parseBigIntScVal("i64", value);
     case "i128":
       return nativeToScVal(BigInt(String(value)), { type: "i128" });
     case "u128":
@@ -141,10 +171,21 @@ export function parseRawArgument(raw: string): xdr.ScVal {
     return nativeToScVal(trimmed === "true", { type: "bool" });
   }
 
+  // Explicit unsigned 64-bit form: "u64:<decimal>". The bare-numeric path
+  // below only ever emits i64/i128, so u64 arguments require this prefix
+  // (or the explicit JSON {"type":"u64",...} object).
+  if (trimmed.startsWith("u64:")) {
+    const payload = trimmed.slice("u64:".length);
+    if (!/^\d+$/.test(payload)) {
+      throw new Error(`Invalid u64 argument value: ${payload}`);
+    }
+    return parseBigIntScVal("u64", payload);
+  }
+
   if (/^-?\d+$/.test(trimmed)) {
     const value = BigInt(trimmed);
     if (value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)) {
-      return nativeToScVal(Number(value), { type: "i64" });
+      return nativeToScVal(value, { type: "i64" });
     }
     return nativeToScVal(value, { type: "i128" });
   }

@@ -12,9 +12,11 @@
  *
  *   init        →  admin: Address
  *   rec_init    →  (guardian, new_owner, initiated_at, executable_at, expires_at)
+ *                  u64 ledger fields are returned as decimal strings so the
+ *                  full 64-bit range survives without precision loss
  *   rec_exec    →  (guardian: Address, new_owner: Address)
  *   rec_adm     →  new_owner: Address
- *   rec_cncl    →  ()
+ *   rec_cncl    →  (guardian?: Address) — cancelling actor, when present
  *   grd_add     →  guardian: Address
  *   grd_rm      →  guardian: Address
  *   reg_link    →  registry_id: Address
@@ -87,6 +89,8 @@ export interface RecoveryRecAdmEvent {
 
 export interface RecoveryRecCnclEvent {
   action: "rec_cncl";
+  /** The cancelling actor, when the payload carries one (audit correlation). */
+  guardian?: string;
 }
 
 export interface RecoveryGrdAddEvent {
@@ -114,6 +118,24 @@ export type RecoveryEvent =
   | RecoveryGrdRmEvent
   | RecoveryRegLinkEvent;
 
+/**
+ * Thrown when an event carries the mux-recovery contract tag and a recognised
+ * action but its payload cannot be decoded. In particular, a `rec_init` event
+ * must never be silently dropped: off-chain tooling relies on it to compute
+ * `executableAt = initiatedAt + RECOVERY_TIMELOCK_LEDGERS`, so a discarded
+ * event means a missed recovery window with no signal.
+ */
+export class RecoveryEventDecodeError extends Error {
+  /** The action whose payload failed to decode. */
+  readonly action: string;
+
+  constructor(action: string, message: string) {
+    super(message);
+    this.name = "RecoveryEventDecodeError";
+    this.action = action;
+  }
+}
+
 // ── Raw Soroban event shape (minimal — avoids importing the full SDK) ──────────
 
 // Import shared RawSorobanEvent from factory-events to avoid duplication
@@ -127,6 +149,10 @@ import { normaliseData, resolveAddress, resolveU64 } from "./event-decode";
  *
  * Returns `null` when the event does not match the recovery's contract tag or
  * when the action is unrecognised.
+ *
+ * Throws {@link RecoveryEventDecodeError} when an event matches the recovery
+ * contract tag and the `rec_init` action but its payload cannot be decoded —
+ * a recovery initiation must never be silently discarded.
  *
  * @example
  * ```ts
@@ -144,7 +170,17 @@ export function parseRecoveryEvent(event: RawSorobanEvent): RecoveryEvent | null
   if (tag !== RECOVERY_CONTRACT_TAG) return null;
 
   const data = normaliseData(event.value);
-  if (!data) return null;
+  if (!data) {
+    // A rec_init event with no decodable payload must fail loudly rather than
+    // blend in with unrelated events (see RecoveryEventDecodeError).
+    if (action === RECOVERY_EVENT_TOPICS.rec_init) {
+      throw new RecoveryEventDecodeError(
+        RECOVERY_EVENT_TOPICS.rec_init,
+        "rec_init event payload is missing or not decodable"
+      );
+    }
+    return null;
+  }
 
   switch (action as RecoveryEventAction) {
     case RECOVERY_EVENT_TOPICS.init: {
@@ -159,7 +195,14 @@ export function parseRecoveryEvent(event: RawSorobanEvent): RecoveryEvent | null
       const initiatedAt = resolveU64(data[2]);
       const executableAt = resolveU64(data[3]);
       const expiresAt = resolveU64(data[4]);
-      if (!guardian || !newOwner || !initiatedAt || !executableAt || !expiresAt) return null;
+      if (!guardian || !newOwner || !initiatedAt || !executableAt || !expiresAt) {
+        throw new RecoveryEventDecodeError(
+          RECOVERY_EVENT_TOPICS.rec_init,
+          "rec_init event payload could not be decoded: expected " +
+            "(guardian, new_owner, initiated_at, executable_at, expires_at), " +
+            `got ${JSON.stringify(event.value)}`
+        );
+      }
       return { action: "rec_init", guardian, newOwner, initiatedAt, executableAt, expiresAt };
     }
 
@@ -176,7 +219,10 @@ export function parseRecoveryEvent(event: RawSorobanEvent): RecoveryEvent | null
     }
 
     case RECOVERY_EVENT_TOPICS.rec_cncl: {
-      return { action: "rec_cncl" };
+      // The cancelling actor is carried for audit correlation when present; a
+      // payload-less rec_cncl remains a valid audit event (#758).
+      const guardian = resolveAddress(data[0]);
+      return guardian ? { action: "rec_cncl", guardian } : { action: "rec_cncl" };
     }
 
     case RECOVERY_EVENT_TOPICS.grd_add: {

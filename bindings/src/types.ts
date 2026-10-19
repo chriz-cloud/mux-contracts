@@ -96,9 +96,9 @@ export type MuxRecoveryError =
  * ```
  *
  * Off-chain tooling can compute the earliest execution ledger without an
- * RPC read:
+ * RPC read (the `rec_init` event fields are decimal strings):
  * ```ts
- * const executableAt = initiatedAt + RECOVERY_TIMELOCK_LEDGERS;
+ * const executableAt = BigInt(initiatedAt) + BigInt(RECOVERY_TIMELOCK_LEDGERS);
  * ```
  *
  * This value is encoded in `rec_init` event payloads (`executable_at`).
@@ -119,9 +119,10 @@ export const RECOVERY_TIMELOCK_LEDGERS = 17_280 as const;
  * 120_960 ledgers × 5 s/ledger = 604_800 s = 7 days
  * ```
  *
- * Off-chain tooling can compute the expiry ledger without an RPC read:
+ * Off-chain tooling can compute the expiry ledger without an RPC read
+ * (the `rec_init` event fields are decimal strings):
  * ```ts
- * const expiresAt = initiatedAt + RECOVERY_EXPIRY_LEDGERS;
+ * const expiresAt = BigInt(initiatedAt) + BigInt(RECOVERY_EXPIRY_LEDGERS);
  * ```
  *
  * This value is encoded in `rec_init` event payloads (`expires_at`).

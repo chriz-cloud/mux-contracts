@@ -83,18 +83,34 @@ export function resolveString(raw: unknown): string | null {
   return null;
 }
 
+/** Inclusive upper bound of the unsigned 64-bit range. */
+const U64_MAX = (1n << 64n) - 1n;
+
 /**
- * Resolve a Soroban u64 from a raw event value. Accepts a string, number, or
- * a `{ u64: "…" }` object. Returns the value as a string to preserve full
- * 64-bit precision (JS numbers lose precision above 2^53).
+ * Resolve a Soroban u64 from a raw event value. Accepts a decimal string, a
+ * safe non-negative integer number, a bigint, or a `{ u64: "…" }` object.
+ * Returns the value as a decimal string to preserve full 64-bit precision (JS
+ * numbers lose precision above 2^53), or `null` when the value cannot be
+ * represented losslessly as a u64.
  */
 export function resolveU64(raw: unknown): string | null {
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "number") return String(raw);
+  if (typeof raw === "bigint") {
+    return raw >= 0n && raw <= U64_MAX ? raw.toString() : null;
+  }
+  if (typeof raw === "number") {
+    // Non-integer, negative, or unsafe numbers are already lossy for u64;
+    // reject them so callers fail loudly instead of silently truncating.
+    if (!Number.isSafeInteger(raw) || raw < 0) return null;
+    return String(raw);
+  }
+  if (typeof raw === "string") {
+    if (!/^\d+$/.test(raw)) return null;
+    const value = BigInt(raw);
+    return value <= U64_MAX ? value.toString() : null;
+  }
   if (raw && typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
-    if (typeof obj["u64"] === "string") return obj["u64"];
-    if (typeof obj["u64"] === "number") return String(obj["u64"]);
+    if ("u64" in obj) return resolveU64(obj["u64"]);
   }
   return null;
 }

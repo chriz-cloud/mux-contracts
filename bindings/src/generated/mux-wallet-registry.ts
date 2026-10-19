@@ -65,7 +65,7 @@ export function validateWalletName(name: string): void {
   }
 }
 
-export type MuxWalletRegistryError =
+export type MuxWalletRegistryErrorCode =
   | "NotInitialized"
   | "AlreadyInitialized"
   | "Unauthorized"
@@ -79,7 +79,7 @@ export type MuxWalletRegistryError =
  * canonical mapping used to translate on-chain failures into typed client
  * errors. Do not renumber: clients and runbooks depend on these values.
  */
-export const MUX_WALLET_REGISTRY_ERROR_CODES: Record<MuxWalletRegistryError, number> = {
+export const MUX_WALLET_REGISTRY_ERROR_CODES: Record<MuxWalletRegistryErrorCode, number> = {
   NotInitialized: 1,
   AlreadyInitialized: 2,
   Unauthorized: 3,
@@ -94,11 +94,11 @@ export const MUX_WALLET_REGISTRY_ERROR_CODES: Record<MuxWalletRegistryError, num
  * logs without exposing key material.
  */
 export class MuxWalletRegistryError extends Error {
-  readonly code: MuxWalletRegistryError;
+  readonly code: MuxWalletRegistryErrorCode;
   readonly numericCode: number;
   readonly correlationId?: string;
 
-  constructor(code: MuxWalletRegistryError, correlationId?: string) {
+  constructor(code: MuxWalletRegistryErrorCode, correlationId?: string) {
     super(`mux-wallet-registry: ${code} (code ${MUX_WALLET_REGISTRY_ERROR_CODES[code]})`);
     this.name = "MuxWalletRegistryError";
     this.code = code;
@@ -357,7 +357,7 @@ export class MuxWalletRegistryClient {
     const message = err instanceof Error ? err.message : String(err);
     for (const [code, numeric] of Object.entries(MUX_WALLET_REGISTRY_ERROR_CODES)) {
       if (message.includes(code) || message.includes(`code ${numeric}`)) {
-        return new MuxWalletRegistryError(code as MuxWalletRegistryError, correlationId);
+        return new MuxWalletRegistryError(code as MuxWalletRegistryErrorCode, correlationId);
       }
     }
     return new MuxWalletRegistryError("Unauthorized", correlationId);

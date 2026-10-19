@@ -35,6 +35,28 @@ not mapped to a documented authorization requirement fails the suite.
 | `revoke_delegate` | mux-permissions | owner |
 | `set_guardian` | mux-permissions | owner |
 | `revoke_guardian` | mux-permissions | owner |
+| `initialize` | mux-account | public (one-time init) |
+| `set_delegate` | mux-account | owner |
+| `remove_delegate` | mux-account | owner |
+| `set_spend_limit` | mux-account | owner |
+| `set_registry_metadata` | mux-batcher | owner |
+| `initialize` | mux-permissions | public (one-time init) |
+| `set_admin_threshold` | mux-permissions | owner |
+| `initialize` | mux-registry | public (one-time init) |
+| `register_with_metadata` | mux-registry | owner |
+| `initialize` | mux-spending-policy | public (one-time init) |
+| `set_policy` | mux-spending-policy | owner |
+| `remove_allowlisted_asset` | mux-spending-policy | owner or delegate |
+| `set_relayer_sponsorship_limit` | mux-spending-policy | owner or delegate |
+| `initialize` | mux-wallet-registry | public (one-time init) |
+| `register_wallet_with_metadata` | mux-wallet-registry | owner |
+
+The mux-account rows are mirrored by the machine-readable
+`MUX_ACCOUNT_MUTATING_AUTHZ` map in `bindings/src/generated/mux-account.ts`;
+the checklist test enumerates `MuxAccountClient.prototype` and fails if the
+map and the client drift apart in either direction. Read-only methods (such
+as `owner`, a simulation-only view function) are excluded by an explicit
+allowlist in the test, not by omission.
 
 ## Adding a new mutating entrypoint
 

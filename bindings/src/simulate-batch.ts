@@ -42,7 +42,7 @@ function toScVal(arg: JsonArg): xdr.ScVal {
     case "u32":
       return xdr.ScVal.scvU32(Number(arg.value));
     case "u64":
-      return xdr.ScVal.scvU64(BigInt(String(arg.value)));
+      return nativeToScVal(BigInt(String(arg.value)), { type: "u64" });
     case "i128":
       return nativeToScVal(BigInt(String(arg.value)), { type: "i128" });
     default:

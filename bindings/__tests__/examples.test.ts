@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import * as accountExamples from "../src/examples/account-invoke";
 import * as frontendUsage from "../src/examples/frontend-usage";
 
 describe("frontend-usage example module", () => {
@@ -51,7 +52,6 @@ describe("frontend-usage example module", () => {
 
 describe("account-invoke example module", () => {
   it("exports all expected functions from account-invoke", () => {
-    const accountExamples = require("../src/examples/account-invoke");
     expect(typeof accountExamples.initializeAccount).toBe("function");
     expect(typeof accountExamples.getOwner).toBe("function");
     expect(typeof accountExamples.grantDelegate).toBe("function");
