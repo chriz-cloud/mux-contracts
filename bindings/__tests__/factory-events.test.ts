@@ -409,6 +409,39 @@ describe("decodeFactoryEvent — meta_set version validation (closes #999)", () 
   });
 });
 
+// ── Shared canonical raw-event fixture (closes #997) ──────────────────────────
+
+import {
+  makeCanonicalRawEvent,
+  CANONICAL_OWNER,
+  CANONICAL_ACCOUNT,
+  CANONICAL_VERSION,
+} from "./fixtures/raw-event";
+
+describe("parseFactoryEvent — canonical shared fixture (closes #997)", () => {
+  it("parses a deployed event built from the shared fixture", () => {
+    const e = makeCanonicalRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.deployed, [
+      CANONICAL_OWNER,
+      CANONICAL_ACCOUNT,
+    ]);
+    const result = parseFactoryEvent(e as RawSorobanEvent) as FactoryDeployedEvent;
+    expect(result).not.toBeNull();
+    expect(result.owner).toBe(CANONICAL_OWNER);
+    expect(result.accountAddress).toBe(CANONICAL_ACCOUNT);
+  });
+
+  it("parses a meta_set event built from the shared fixture", () => {
+    const e = makeCanonicalRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      CANONICAL_OWNER,
+      CANONICAL_ACCOUNT,
+      CANONICAL_VERSION,
+    ]);
+    const result = parseFactoryEvent(e as RawSorobanEvent) as FactoryMetaSetEvent;
+    expect(result).not.toBeNull();
+    expect(result.version).toBe(CANONICAL_VERSION);
+  });
+});
+
 // ── Event catalog completeness ────────────────────────────────────────────────
 
 describe("event catalog completeness", () => {

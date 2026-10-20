@@ -238,6 +238,35 @@ describe("decodePolicyEvent — error cases (closes #914)", () => {
   });
 });
 
+// ── Shared canonical raw-event fixture (closes #997) ──────────────────────────
+
+import {
+  makeCanonicalRawEvent,
+  CANONICAL_ACCOUNT,
+  CANONICAL_AMOUNT,
+} from "./fixtures/raw-event";
+
+describe("parsePolicyEvent — canonical shared fixture (closes #997)", () => {
+  it("parses a spent event built from the shared fixture", () => {
+    const e = makeCanonicalRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      CANONICAL_ACCOUNT,
+      CANONICAL_AMOUNT,
+    ]);
+    const result = parsePolicyEvent(e as RawSorobanEvent) as any;
+    expect(result).not.toBeNull();
+    expect(result.wallet).toBe(CANONICAL_ACCOUNT);
+    expect(result.amount).toBe(CANONICAL_AMOUNT);
+  });
+
+  it("rejects a spent event from the shared fixture with a malformed amount", () => {
+    const e = makeCanonicalRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      CANONICAL_ACCOUNT,
+      "not-a-number",
+    ]);
+    expect(parsePolicyEvent(e as RawSorobanEvent)).toBeNull();
+  });
+});
+
 describe("parsePolicyEvent unchanged behaviour after adding decodePolicyEvent (closes #914)", () => {
   it("still returns null for unknown action (never throws)", () => {
     const raw = makeRawEvent(POLICY_CONTRACT_TAG, "fee_charged", [ADMIN]);

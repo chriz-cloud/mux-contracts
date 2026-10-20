@@ -676,3 +676,24 @@ describe("parseBatcherEvent — malformed numeric fields and caller/op-count sha
     expect((result as any).opCount).toBe(OP_COUNT);
   });
 });
+
+// ── Shared canonical raw-event fixture (closes #997) ──────────────────────────
+
+import {
+  makeCanonicalRawEvent,
+  CANONICAL_ACCOUNT,
+  CANONICAL_OP_COUNT,
+} from "./fixtures/raw-event";
+
+describe("parseBatcherEvent — canonical shared fixture (closes #997)", () => {
+  it("parses a bat_start event built from the shared fixture", () => {
+    const e = makeCanonicalRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CANONICAL_ACCOUNT,
+      CANONICAL_OP_COUNT,
+    ]);
+    const result = parseBatcherEvent(e as RawSorobanEvent) as any;
+    expect(result).not.toBeNull();
+    expect(result.caller).toBe(CANONICAL_ACCOUNT);
+    expect(result.opCount).toBe(CANONICAL_OP_COUNT);
+  });
+});
