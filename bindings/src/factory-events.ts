@@ -78,6 +78,19 @@ export const MAX_FACTORY_EVENT_TOPICS = 2 as const;
  */
 export const MAX_FACTORY_EVENT_FIELD_BYTES = 1024 as const;
 
+/**
+ * Semantic-version string format accepted for {@link FactoryMetaSetEvent.version}.
+ * Mirrors the semver pattern used across the repo's version-sync checks
+ * (see bindings/__tests__/version-sync.test.ts): `MAJOR.MINOR.PATCH` with an
+ * optional `-prerelease` suffix. A `meta_set` event whose version field does
+ * not match this shape is treated as malformed and rejected fail-closed.
+ */
+const FACTORY_VERSION_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/;
+
+function isValidFactoryVersion(value: string): boolean {
+  return FACTORY_VERSION_RE.test(value);
+}
+
 // ── getAccounts bounds ─────────────────────────────────────────────────────────
 
 /**
@@ -390,6 +403,13 @@ export function decodeFactoryEvent(event: RawSorobanEvent): FactoryEventEnvelope
         correlationId,
       );
     }
+    if (!isValidFactoryVersion(data[2])) {
+      throw new FactoryEventError(
+        FactoryEventErrorCode.MalformedPayload,
+        `meta_set version field ${JSON.stringify(data[2])} is not a valid semver string`,
+        correlationId,
+      );
+    }
     decoded = {
       action: "meta_set",
       owner: data[0],
@@ -449,6 +469,7 @@ export function parseFactoryEvent(event: RawSorobanEvent): FactoryEvent | null {
 
   if (action === FACTORY_EVENT_TOPICS.meta_set) {
     if (data.length !== 3) return null;
+    if (!isValidFactoryVersion(data[2])) return null;
     return {
       action: "meta_set",
       owner: data[0],

@@ -14,6 +14,8 @@ import {
   FACTORY_CONTRACT_TAG,
   FACTORY_EVENT_TOPICS,
   parseFactoryEvent,
+  decodeFactoryEvent,
+  FactoryEventError,
   type FactoryDeployedEvent,
   type FactoryMetaSetEvent,
   type FactoryEvent,
@@ -349,6 +351,61 @@ describe("schema freeze — decode round-trips", () => {
     const first = parseFactoryEvent(DEPLOYED_ARRAY);
     const second = parseFactoryEvent(DEPLOYED_ARRAY);
     expect(first).toEqual(second);
+  });
+});
+
+// ── meta_set version string validation (closes #999) ─────────────────────────
+
+describe("parseFactoryEvent — meta_set version validation (closes #999)", () => {
+  it("rejects a non-semver version string", () => {
+    const e = makeRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      OWNER,
+      ACCOUNT,
+      "not-a-version",
+    ]);
+    expect(parseFactoryEvent(e)).toBeNull();
+  });
+
+  it("rejects a version string missing the patch segment", () => {
+    const e = makeRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      OWNER,
+      ACCOUNT,
+      "1.0",
+    ]);
+    expect(parseFactoryEvent(e)).toBeNull();
+  });
+
+  it("accepts a well-formed semver version string", () => {
+    const e = makeRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      OWNER,
+      ACCOUNT,
+      "2.3.4",
+    ]);
+    const result = parseFactoryEvent(e) as FactoryMetaSetEvent;
+    expect(result).not.toBeNull();
+    expect(result.version).toBe("2.3.4");
+  });
+
+  it("accepts a semver version string with a prerelease suffix", () => {
+    const e = makeRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      OWNER,
+      ACCOUNT,
+      "1.2.3-beta.1",
+    ]);
+    const result = parseFactoryEvent(e) as FactoryMetaSetEvent;
+    expect(result).not.toBeNull();
+    expect(result.version).toBe("1.2.3-beta.1");
+  });
+});
+
+describe("decodeFactoryEvent — meta_set version validation (closes #999)", () => {
+  it("throws FactoryEventError for a malformed version string", () => {
+    const e = makeRawEvent(FACTORY_CONTRACT_TAG, FACTORY_EVENT_TOPICS.meta_set, [
+      OWNER,
+      ACCOUNT,
+      "vNext",
+    ]);
+    expect(() => decodeFactoryEvent(e)).toThrow(FactoryEventError);
   });
 });
 
