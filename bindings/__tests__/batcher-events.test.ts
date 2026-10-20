@@ -599,3 +599,80 @@ describe("decodeBatcherFeeEvent (closes #950)", () => {
     );
   });
 });
+
+// ── parseBatcherEvent: malformed numeric fields / caller shape (closes #998) ──
+//
+// parseBatcherEvent delegates to the same strict payload decoder as
+// decodeBatcherEvent (requireAddress / requireU32), so malformed numeric
+// fields and invalid caller addresses must already be rejected rather than
+// silently coerced. These regression tests lock that behaviour in.
+
+describe("parseBatcherEvent — malformed numeric fields and caller/op-count shape (closes #998)", () => {
+  it("rejects bat_start with a non-numeric op_count", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER,
+      "not-a-number",
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects bat_start with a negative op_count", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER,
+      "-1",
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects bat_start with an op_count beyond u32 range", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER,
+      "4294967296",
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects bat_start with a fractional op_count", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER,
+      "1.5",
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects bat_start with a malformed caller address (wrong shape)", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      "not-a-valid-address",
+      OP_COUNT,
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects bat_start with a caller address of the wrong length", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER.slice(0, -1),
+      OP_COUNT,
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("rejects fee_chg with a non-numeric fee", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.fee_chg, [
+      CALLER,
+      OP_COUNT,
+      "free",
+    ]);
+    expect(parseBatcherEvent(event)).toBeNull();
+  });
+
+  it("accepts a well-formed bat_start event (sanity check)", () => {
+    const event = makeRawEvent(BATCHER_CONTRACT_TAG, BATCHER_EVENT_TOPICS.bat_start, [
+      CALLER,
+      OP_COUNT,
+    ]);
+    const result = parseBatcherEvent(event);
+    expect(result).not.toBeNull();
+    expect(result?.action).toBe("bat_start");
+    expect((result as any).opCount).toBe(OP_COUNT);
+  });
+});
