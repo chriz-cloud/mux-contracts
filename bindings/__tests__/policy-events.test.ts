@@ -82,6 +82,80 @@ describe("parsePolicyEvent — ctr_rst", () => {
   });
 });
 
+// ── wallet/amount shape validation (closes #996) ──────────────────────────────
+
+describe("parsePolicyEvent — malformed wallet/amount shape (closes #996)", () => {
+  it("rejects spent with a non-numeric amount", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      WALLET,
+      "not-a-number",
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects spent with a fractional amount", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      WALLET,
+      "100.5",
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects spent with a malformed wallet address", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      "not-a-valid-address",
+      AMOUNT,
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects spent with a wallet address of the wrong length", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      WALLET.slice(0, -1),
+      AMOUNT,
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects lmt_set with a non-numeric limit", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.lmt_set, [
+      WALLET,
+      "unlimited",
+      DAY_LEDGERS,
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects lmt_set with a non-numeric dayLedgers", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.lmt_set, [
+      WALLET,
+      LIMIT,
+      "forever",
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("rejects lmt_set with a dayLedgers value beyond u32 range", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.lmt_set, [
+      WALLET,
+      LIMIT,
+      "4294967296",
+    ]);
+    expect(parsePolicyEvent(event)).toBeNull();
+  });
+
+  it("accepts a well-formed spent event (sanity check)", () => {
+    const event = makeRawEvent(POLICY_CONTRACT_TAG, POLICY_EVENT_TOPICS.spent, [
+      WALLET,
+      AMOUNT,
+    ]);
+    const result = parsePolicyEvent(event) as any;
+    expect(result).not.toBeNull();
+    expect(result.wallet).toBe(WALLET);
+    expect(result.amount).toBe(AMOUNT);
+  });
+});
+
 describe("parsePolicyEvent — returns null for non-policy events", () => {
   it("returns null for different contract tag", () => {
     const event = makeRawEvent("mux_other", POLICY_EVENT_TOPICS.init, [ADMIN]);

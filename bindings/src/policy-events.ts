@@ -315,24 +315,42 @@ export function parsePolicyEvent(event: RawSorobanEvent): PolicyEvent | null {
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
+// Soroban i128 is a signed 128-bit integer; accept only a well-formed
+// (optionally negative) decimal digit string so a malformed/non-numeric
+// field (e.g. "abc", "1.5", "") can never be mistaken for a valid amount
+// or limit.
+const I128_RE = /^-?\d+$/;
+
 function resolveI128(raw: unknown): string | null {
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "number") return String(raw);
+  if (typeof raw === "number") {
+    return Number.isInteger(raw) ? String(raw) : null;
+  }
+  if (typeof raw === "string") {
+    return I128_RE.test(raw) ? raw : null;
+  }
   if (raw && typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
-    if (typeof obj["i128"] === "string") return obj["i128"];
-    if (typeof obj["i128"] === "number") return String(obj["i128"]);
+    if ("i128" in obj) return resolveI128(obj["i128"]);
   }
   return null;
 }
 
+/** Inclusive upper bound of the unsigned 32-bit range. */
+const U32_MAX = 0xffff_ffff;
+
 function resolveU32(raw: unknown): string | null {
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "number") return String(raw);
+  if (typeof raw === "number") {
+    if (!Number.isInteger(raw) || raw < 0 || raw > U32_MAX) return null;
+    return String(raw);
+  }
+  if (typeof raw === "string") {
+    if (!/^\d{1,10}$/.test(raw)) return null;
+    const n = Number(raw);
+    return n <= U32_MAX ? String(n) : null;
+  }
   if (raw && typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
-    if (typeof obj["u32"] === "string") return obj["u32"];
-    if (typeof obj["u32"] === "number") return String(obj["u32"]);
+    if ("u32" in obj) return resolveU32(obj["u32"]);
   }
   return null;
 }
